@@ -104,28 +104,18 @@ app.get('/debug/trace/:orderId', (req, res) => {
 
 async function callService(step, url, payload, trace) {
 
-  // Record the start time for duration calculation
   const started = Date.now();
 
-  // Record the ISO timestamp required by the trace schema
   const startedAt = nowIso();
 
   try {
 
-    // Make HTTP request to downstream service
-    // Example services:
-    // payment -> authorize
-    // inventory -> reserve
-    // shipping -> create
-    // notification -> send
     const res = await axios.post(url, payload, {
       timeout: config.requestTimeoutMs
     });
 
-    // Record when the request finished
     const finishedAt = nowIso();
 
-    // Add successful execution record to the trace
     trace.push({
       step: step,
       status: 'success',
@@ -134,24 +124,18 @@ async function callService(step, url, payload, trace) {
       durationMs: Date.now() - started
     });
 
-    // Return the response data from the downstream service
     return res.data;
 
   } catch (err) {
 
-    // If the request fails or times out we still record the trace
     const finishedAt = nowIso();
 
-    // Default failure status
     let status = 'failed';
 
-    // Axios timeout error detection
-    // This satisfies the assignment requirement for timeout handling
     if (err.code === 'ECONNABORTED') {
       status = 'timeout';
     }
 
-    // Record failed step in trace
     trace.push({
       step: step,
       status: status,
@@ -160,8 +144,6 @@ async function callService(step, url, payload, trace) {
       durationMs: Date.now() - started
     });
 
-    // Re-throw the error so the orchestrator can decide
-    // whether to trigger compensation
     throw err;
   }
 }
@@ -228,16 +210,6 @@ app.post('/checkout', async (req, res) => {
   };
   writeJsonFile(IDEMPOTENCY_STORE_PATH, idempotencyStore);
 
-  // --------------------------------------------------------------------------
-  // TODO (student): Implement full orchestration flow:
-  //   1) payment authorize
-  //   2) inventory reserve
-  //   3) shipping create
-  //   4) notification send
-  // with strict sequencing, trace recording, timeout handling, compensation,
-  // idempotent replay policy, and restart-safe persistence updates.
-  // --------------------------------------------------------------------------
-
   let trace = [];
 
   let paymentDone = false;
@@ -264,14 +236,12 @@ app.post('/checkout', async (req, res) => {
     console.log(`[${nowIso()}] STEP 4/4: Calling Notification Service...`);
     await callService('notification', `${config.notificationUrl}/notification/send`, req.body, trace);
 
-    // SUCCESS
     const response = {
       orderId,
       status: 'completed',
       trace
     };
 
-    // Update idempotency store
     idempotencyStore.records[idempotencyKey] = {
       requestHash,
       state: 'completed',
@@ -281,7 +251,6 @@ app.post('/checkout', async (req, res) => {
     };
     writeJsonFile(IDEMPOTENCY_STORE_PATH, idempotencyStore);
 
-    // Update saga store
     const sagaStore = readJsonFile(SAGA_STORE_PATH);
     if (!sagaStore.sagas) sagaStore.sagas = {};
     sagaStore.sagas[orderId] = {
@@ -306,25 +275,19 @@ app.post('/checkout', async (req, res) => {
       code = 'timeout';
     }
 
-    // COMPENSATION LOGIC
     try {
       if (paymentDone && !inventoryDone) {
-        // Payment succeeded but inventory failed - just refund payment
         console.log('Inventory failed - refunding payment');
         await callService('refund_payment', `${config.paymentUrl}/payment/refund`, req.body, trace);
         compensated = true;
       }
       else if (paymentDone && inventoryDone && !shippingDone) {
-        // Payment and inventory succeeded but shipping failed
-        // Need to release inventory AND refund payment
         console.log('Shipping failed - releasing inventory and refunding payment');
         await callService('release_inventory', `${config.inventoryUrl}/inventory/release`, req.body, trace);
         await callService('refund_payment', `${config.paymentUrl}/payment/refund`, req.body, trace);
         compensated = true;
       }
       else if (paymentDone && inventoryDone && shippingDone) {
-        // Payment, inventory, and shipping succeeded but notification failed
-        // Need to release inventory AND refund payment
         console.log('Notification failed - releasing inventory and refunding payment');
         await callService('release_inventory', `${config.inventoryUrl}/inventory/release`, req.body, trace);
         await callService('refund_payment', `${config.paymentUrl}/payment/refund`, req.body, trace);
@@ -344,7 +307,6 @@ app.post('/checkout', async (req, res) => {
       trace
     };
 
-    // Update idempotency store
     idempotencyStore.records[idempotencyKey] = {
       requestHash,
       state: 'failed',
@@ -354,7 +316,6 @@ app.post('/checkout', async (req, res) => {
     };
     writeJsonFile(IDEMPOTENCY_STORE_PATH, idempotencyStore);
 
-    // Update saga store
     const sagaStore = readJsonFile(SAGA_STORE_PATH);
     if (!sagaStore.sagas) sagaStore.sagas = {};
     sagaStore.sagas[orderId] = {
