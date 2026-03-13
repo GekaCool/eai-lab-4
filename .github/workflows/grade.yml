@@ -9,7 +9,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
+      - name: Install Docker Compose
+        run: |
+          sudo apt-get update
+          sudo apt-get install docker-compose -y
       - name: Build and start containers
         run: docker-compose -f practice-03-api_orchestration_and_composition/docker-compose.yml up -d --build
 
