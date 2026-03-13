@@ -1,0 +1,13 @@
+{
+  "name": "practice-3-orchestrator",
+  "version": "1.0.0",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "axios": "^1.13.6",
+    "express": "^4.21.2"
+  }
+}
